@@ -16,7 +16,7 @@ To use the `snakemake` pipeline:
 1. Download all scripts from this repository:
 
 ```bash
-git clone xxxxxx
+git clone https://github.com/kwells4/visium_ovarian_cancer.git
 ```
 
 2. Download and install miniconda3: For Linux
