@@ -6,8 +6,22 @@ This includes a `snakemake` pipeline to run the first steps of the analysis on a
 All scripts in this repository were writen by Kristen Wells. Any use of these scripts should cite
 
 ```
-1.	Sanders B.E., Wolsky R., Doughty E.S., Wells K.L., Ghosh D., Ku L., Pressey J. G., Bitler B.B., Brubaker L.W. Small cell carcinoma of the ovary hypercalcemic type (SCCOHT): A review and novel case with dual germline SMARCA4 and BRCA2 mutations. Gynecologic Oncology Reports. 2022; 44:101077
+Sanders B.E., Wolsky R., Doughty E.S., Wells K.L., Ghosh D., Ku L., Pressey J. G., Bitler B.B., Brubaker L.W. Small cell carcinoma of the ovary hypercalcemic type (SCCOHT): A review and novel case with dual germline SMARCA4 and BRCA2 mutations. Gynecologic Oncology Reports. 2022; 44:101077
 ```
+
+## View the data
+We have tried to make viewing the data easy by creating an [interactive web environment](https://visium-shiny-9hzfl.ondigitalocean.app/) where you can visualize the expression of any gene of interest across the tissue for all 8 samples, cell types, and clusters.
+
+You can also download and run the shiny app on your own by running
+
+```bash
+git clone https://github.com/kwells4/visium_public_shiny
+```
+
+And then opening R and running the app.
+
+## Reanalyze data
+
 
 The raw data can be downloaded from GEO [GSE213699](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE213699)
 
@@ -16,7 +30,7 @@ To use the `snakemake` pipeline:
 1. Download all scripts from this repository:
 
 ```bash
-git clone xxxxxx
+git clone https://github.com/kwells4/visium_ovarian_cancer.git
 ```
 
 2. Download and install miniconda3: For Linux
@@ -55,3 +69,5 @@ Install [`spaceranger`](https://support.10xgenomics.com/spatial-gene-expression/
 5. submit the job using `bsub < snakecharmer.sh`
 
 6. I highly recommend looking at the csv files that are generated and passed to cell ranger to ensure that the correct fastq files have been detected for each sample.
+
+7. Follow R scripts in order for each sample
