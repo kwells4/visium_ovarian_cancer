@@ -35,7 +35,8 @@ git clone https://github.com/kwells4/visium_ovarian_cancer.git
 
 2. Download and install miniconda3: For Linux
 ```bash
-wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh bash Miniconda3-latest-Linux-x86_64.sh
+wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
 ```
 
 3. Install packages (I like using conda):
