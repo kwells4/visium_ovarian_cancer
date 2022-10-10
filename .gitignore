@@ -1,0 +1,6 @@
+.*
+!.gitattributes
+!.gitignore
+logs
+results
+slides

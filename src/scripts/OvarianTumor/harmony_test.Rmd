@@ -1,0 +1,195 @@
+---
+title: "Combined OvarianTumor test"
+author: "Kristen Wells"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    highlight: "tango"
+    df_print: "paged"
+    code_folding: "hide"
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = F, 
+  warning = F,
+  comment = "",
+  results = "hide"
+)
+
+knitr::opts_knit$set(root.dir =
+  "/Users/wellskr/Documents/Analysis/Benjamin_Bitler/visium_ovary")
+
+library(Seurat)
+library(cowplot)
+library(knitr)
+library(tidyverse)
+library(LaCroixColoR)
+library(viridis)
+library(pheatmap)
+library(RColorBrewer)
+```
+
+```{r "Set variables and theme"}
+# Set theme
+ggplot2::theme_set(ggplot2::theme_classic(base_size = 10))
+
+source("src/scripts/functions.R")
+
+normalization_method <- "SCT" # can be SCT or log
+sample <- "OvarianTumor"
+
+
+celltype <- "Spatial_celltype"
+
+HTO <- FALSE
+ADT <- FALSE
+ffpe <- TRUE
+
+if(normalization_method == "SCT"){
+  SCT <- TRUE
+  seurat_assay <- "SCT"
+  clusters = "SCT_cluster"
+} else {
+  SCT <- FALSE
+  seurat_assay <- "RNA"
+  clusters = "RNA_cluster"
+}
+
+base_dir_proj <- file.path("results", sample)
+
+save_dir <- file.path(base_dir_proj, "R_analysis")
+```
+
+
+# Original datasets
+
+```{r}
+samples <- c("A_955_OvarianTumor", "D_GTFB_1230_OvarianTumor")
+
+base_dir <- "/Users/wellskr/Documents/Analysis/Benjamin_Bitler/visium_ovary"
+
+results_dir <- file.path(base_dir, "results")
+
+
+save_dir_one <- file.path(results_dir, samples[[1]], "R_analysis")
+
+save_dir_two <- file.path(results_dir, samples[[2]], "R_analysis")
+
+seurat_one <- readRDS(file.path(save_dir_one, "rda_obj",
+                                "seurat_processed.rds"))
+
+seurat_two <- readRDS(file.path(save_dir_two, "rda_obj",
+                                "seurat_processed.rds"))
+```
+
+## Data set 1
+```{r, fig.height=6, fig.width=8}
+plot_list <- plotDimRed(seurat_one,
+                        col_by = c("cluster", "SCT_celltype", "CD3D"),
+                        plot_type = "rnasct.umap")
+
+plot_grid(plotlist = plot_list,
+          nrow = 2, ncol = 2,
+          labels = c("A", "B", "C"))
+
+```
+
+
+## Data set 2
+
+```{r, fig.height=6, fig.width=8}
+plot_list <- plotDimRed(seurat_two,
+                        col_by = c("cluster", "SCT_celltype", "CD3D"),
+                        plot_type = "rnasct.umap")
+
+plot_grid(plotlist = plot_list,
+          nrow = 2, ncol = 2,
+          labels = c("A", "B", "C"))
+
+```
+
+# Testing harmony {.tabset}
+
+```{r}
+seurat_data <- readRDS(file.path(save_dir, "rda_obj", "seurat_processed.rds"))
+```
+
+## Default harmony
+
+```{r, fig.height=6, fig.width=8}
+plot_list <- plotDimRed(seurat_data,
+                        col_by = c("orig.ident", "SCT_celltype"),
+                        plot_type = "harmony_default.umap")
+
+plot_cd3_one <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "A_955_OvarianTumor",
+                            plot_type = "harmony_default.umap")[[1]]
+
+plot_cd3_two <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "D_GTFB_1230_OvarianTumor",
+                            plot_type = "harmony_default.umap")[[1]]
+
+plot_grid(plot_list[[1]], plot_list[[2]], plot_cd3_one, plot_cd3_two,
+          nrow = 2, ncol = 2,
+          labels = c("A", "B", "C", "D"))
+
+```
+
+## High lambda
+
+```{r, fig.height=6, fig.width=8}
+plot_list <- plotDimRed(seurat_data,
+                        col_by = c("orig.ident", "SCT_celltype"),
+                        plot_type = "harmony_high_lambda.umap")
+
+plot_cd3_one <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "A_955_OvarianTumor",
+                            plot_type = "harmony_high_lambda.umap")[[1]]
+
+plot_cd3_two <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "D_GTFB_1230_OvarianTumor",
+                            plot_type = "harmony_high_lambda.umap")[[1]]
+
+plot_grid(plot_list[[1]], plot_list[[2]], plot_cd3_one, plot_cd3_two,
+          nrow = 2, ncol = 2,
+          labels = c("A", "B", "C", "D"))
+
+```
+
+## 5 clusters
+
+```{r, fig.height=6, fig.width=8}
+plot_list <- plotDimRed(seurat_data,
+                        col_by = c("orig.ident", "SCT_celltype"),
+                        plot_type = "harmony_clust_5.umap")
+
+plot_cd3_one <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "A_955_OvarianTumor",
+                            plot_type = "harmony_clust_5.umap")[[1]]
+
+plot_cd3_two <- plotDimRed(seurat_data, col_by = "CD3D",
+                            highlight_group = TRUE,
+                            meta_data_col = "orig.ident",
+                            group = "D_GTFB_1230_OvarianTumor",
+                            plot_type = "harmony_clust_5.umap")[[1]]
+
+plot_grid(plot_list[[1]], plot_list[[2]], plot_cd3_one, plot_cd3_two,
+          nrow = 2, ncol = 2,
+          labels = c("A", "B", "C", "D"))
+
+```

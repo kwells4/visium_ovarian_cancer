@@ -1,0 +1,88 @@
+```{r echo = F}
+
+# Strings to match samples and create labels
+#gene <- "{{.x}}"
+gene <- "{{gene}}"
+
+# Create section title
+sect_title <- gene
+
+if(!exists("extra_pound_gene")){
+  extra_pound_gene <- ""
+}
+
+
+```
+
+###`r extra_pound_gene` **`r sect_title`**
+Plots of gene expression
+
+A) Plot of gene expression on single cell UMAP
+B) Plot of `r sep_1` on single cell UMAP
+C) Violin of gene expression across `r sep_1` on single cell UMAP
+D) Plot of `r sep_2` on single cell UMAP
+E) Violin of gene expression across `r sep_2` on single cell UMAP
+```{r gene-plot-{{gene}}-{{group}}-{{sample}}, fig.width=8, fig.height=8, message=F, echo=F, results = "hide"}
+DefaultAssay(seurat_data) <- "Spatial"
+violin1 <- featDistPlot(seurat_data, gene, sep_by = sep_1,
+                        col_by = violin_col_by_1, color = colors_1)
+                      
+
+umap1 <- plotDimRed(seurat_data, col_by = gene, plot_type = plot_type)[[1]]
+umap2 <- plotDimRed(seurat_data, col_by = sep_1,
+                    plot_type = plot_type, color = umap_cols_1)[[1]]
+if(is.null(sep_2)){
+  violin2 <- NULL
+  umap3 <- NULL
+  text_labels <- c("A", "", "B", "C", "", "")
+} else {
+  violin2 <- featDistPlot(seurat_data, gene, sep_by = sep_2,
+                          col_by = violin_col_by_2, color = colors_2)
+  umap3 <- plotDimRed(seurat_data, col_by = sep_2,
+                    plot_type = plot_type, color = umap_cols_2)[[1]]
+  text_labels <- c("A", "", "B", "C", "D", "E")
+}
+
+plot_grid(umap1, NULL,
+          umap2, violin1,
+          umap3, violin2,
+          labels = text_labels,
+          nrow = 3,
+          ncol = 2,
+          align = "hv",
+          axis = "l")
+```
+
+Gene expression on the tissue
+
+```{r}
+plot_gene <- SpatialFeaturePlot(seurat_data, features = gene)
+
+plot1 <- SpatialDimPlot(seurat_data, group.by = sep_1,
+                                   cols = colors_1)
+ 
+plot2 <- SpatialDimPlot(seurat_data, group.by = sep_2,
+                               cols = colors_2)
+
+```
+
+```{r, fig.width=4, fig.height=4}
+
+plot_gene
+
+```
+
+```{r, fig.width=8, fig.height=3}
+plot1 + plot2
+```
+
+```{r, echo = F, message = F, results="hide"}
+pdf(file.path(save_dir, "images", "gene_plots", paste0(gene, ".pdf")))
+violin1
+violin2
+umap1
+plot_gene
+plot1
+plot2
+dev.off()
+```

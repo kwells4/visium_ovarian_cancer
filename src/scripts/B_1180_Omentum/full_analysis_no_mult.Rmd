@@ -1,0 +1,339 @@
+---
+title: "B_1180_Omentum SC Analysis"
+author: "Kristen Wells"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    highlight: "tango"
+    df_print: "paged"
+    code_folding: "hide"
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = F, 
+  warning = F,
+  comment = "",
+  results = "hide"
+)
+
+knitr::opts_knit$set(root.dir =
+  "/Users/wellskr/Documents/Analysis/Benjamin_Bitler/visium_ovary")
+
+library(Seurat)
+library(cowplot)
+library(knitr)
+library(tidyverse)
+library(LaCroixColoR)
+library(viridis)
+library(pheatmap)
+library(RColorBrewer)
+```
+
+```{r, include=FALSE}
+bitler_genes <- c("EHMT1",
+               "EHMT2",
+               "CLDN4",
+               "ATF6",
+               "IL6",
+               #"GOLM2", #CASC4
+               "CXCL10",
+               "DUSP1",
+               "PTP4A3",
+               "PAX8",
+               "CRABP2",
+               "MUC16",
+               "POLQ",
+               "BRCA1",
+               "BRCA2",
+               "TMEM173",
+               "CBX2",
+               "CPT1A",
+               "IER3",
+               "WNT4",
+               "WNT3A",
+               "FZD2",
+               "CTNNB1",
+               #"T53BP1", 
+               "XRCC1",
+               "MAPK14",
+               "EGFR",
+               "ERBB3",
+               "OLFML3",
+               "RB1",
+               "NOTCH3",
+               "MUC1",
+               "THBS1",
+               "RXRA",
+               "IGFBP2",
+               "CD3D", # T cells
+               "CXCR3",
+               "CD69", # Myeloid
+               "CD11B",
+               "CCR2",
+               "CCR3",
+               "FOSL1",
+               "CCND1",
+               "MYC",
+               "GOLM2", # CASC4
+               "CDKN1A",
+               "CDKN2A")
+```
+
+```{r "Set variables and theme"}
+# Set theme
+ggplot2::theme_set(ggplot2::theme_classic(base_size = 10))
+
+source("src/scripts/functions.R")
+
+normalization_method <- "SCT" # can be SCT or log
+sample <- "B_1180_Omentum"
+
+species <- "hsa"
+
+celltype <- "SCT_celltype_no_mult"
+
+path_id_list <- c(T_cell_receptor = "04660",
+                  pathways_in_cancer = "05200",
+                  leukocyte_transendothelial_migration = "04670",
+                  transcriptional_misregulation_in_cancer = "05202",
+                  p53_signaling_pathway = "04115",
+                  proteoglycans_in_cancer = "05205")
+
+HTO <- FALSE
+ADT <- FALSE
+ffpe <- TRUE
+
+if(normalization_method == "SCT"){
+  SCT <- TRUE
+  seurat_assay <- "SCT"
+  clusters = "SCT_cluster"
+} else {
+  SCT <- FALSE
+  seurat_assay <- "RNA"
+  clusters = "RNA_cluster"
+}
+
+base_dir_proj <- file.path("results", sample)
+
+save_dir <- file.path(base_dir_proj, "R_analysis")
+```
+
+# Map clusters
+```{r}
+# To make this object, run 02_PCA_UMAP.R
+seurat_data <- readRDS(file.path(save_dir, "rda_obj",
+                                 "seurat_no_mult_processed.rds"))
+
+seurat_data[[clusters]][[1]] <- factor(seurat_data[[clusters]][[1]])
+
+
+nColors <- length(levels(seurat_data[[clusters]][[1]]))
+
+cluster_colors <- grDevices::colorRampPalette(
+  RColorBrewer::brewer.pal(9, "Set1"))(nColors)
+
+names(cluster_colors) <- levels(seurat_data[[clusters]][[1]])
+
+```
+
+## Map clusters ovarian single cell reference {.tabset}
+I mapped clusters based on an existing single cell dataset. I found this recently published paper "Characterizing the tumor microenvironment of metastatic ovarian cancer by single-cell transcriptomics" (https://www.sciencedirect.com/science/article/pii/S2211124721005076). They seemed to thorougly characterize their cell populations using a mixture of mapping to bulk RNA-seq datasets and curration based on the genes that marked each population. I then correlated the gene expression in each of the identified clusters in your dataset with the cell types annotated in this dataset using `clustifyr`. I generally like to start naming clusters based on existing datasets, but we can tweak the clusters and the cell types as you look through the gene lists.
+
+
+A) Cell types predicted by using `clustifyr` with the above reference to map
+B) Clusters projected onto the UMAP
+C) Percent of cells in each cell type predicted using `clustifyr`
+```{r "mapping based on gene expression clusters", fig.width=8, fig.height=3}
+Idents(seurat_data) <- clusters
+
+colors_celltype <- lacroix_palette("PeachPear", 6, "discrete")
+
+names(colors_celltype) <- c("Monocyte", "MSC", "Fibroblast",
+                            "Epithelial", "ESC", "TCell")
+
+plot1 <- plotDimRed(seurat_data,
+                    col_by = celltype,
+                    plot_type = "rnasct.umap",
+                    color = colors_celltype)[[1]]
+
+plot3 <- plotDimRed(seurat_data,
+                    col_by = clusters,
+                    plot_type = "rnasct.umap",
+                    color = cluster_colors)[[1]]
+
+plot_grid(plot1, plot3,
+  labels = c("A", "B"),
+  nrow = 1, ncol = 2,
+  align = "h",
+  axis = "tb"
+)
+```
+
+```{r, fig.width=4, fig.height=4}
+# Bar plots of population
+barplot1 <- stacked_barplots(seurat_object = seurat_data,
+                             meta_col = celltype,
+                             color = colors_celltype,
+                             percent = TRUE,
+                             split_by = NULL)
+
+
+print(barplot1)
+```
+
+We can also plot these cell types on top of the tissue sample. We can now tell what cell types are spatially together and which tend to be more dispersed in the sample.
+
+```{r, fig.width = 8, fig.height = 6}
+plot_cell_type <- SpatialDimPlot(seurat_data, group.by = celltype,
+                                   cols = colors_celltype)
+ 
+plot_cluster <- SpatialDimPlot(seurat_data, group.by = clusters,
+                               cols = cluster_colors)
+
+plot_cell_type + plot_cluster
+```
+
+## Map clusters pan cancer {.tabset}
+I mapped clusters also based on the pan cancer dataset, ovarian tumor samples
+
+A) Cell types predicted by using `clustifyr` with the above reference to map
+B) Clusters projected onto the UMAP
+C) Percent of cells in each cell type predicted using `clustifyr`
+```{r, fig.width=8, fig.height=3}
+Idents(seurat_data) <- clusters
+
+colors_celltype <- lacroix_palette("PeachPear", 6, "discrete")
+
+names(colors_celltype) <- c("Monocyte", "MSC", "Fibroblast",
+                            "Epithelial", "ESC", "TCell")
+
+plot1 <- plotDimRed(seurat_data,
+                    col_by = "SCT_celltype_pc",
+                    plot_type = "rnasct.umap")[[1]]
+
+plot3 <- plotDimRed(seurat_data,
+                    col_by = clusters,
+                    plot_type = "rnasct.umap",
+                    color = cluster_colors)[[1]]
+
+plot_grid(plot1, plot3,
+  labels = c("A", "B"),
+  nrow = 1, ncol = 2,
+  align = "h",
+  axis = "tb"
+)
+```
+
+```{r, fig.width=4, fig.height=4}
+# Bar plots of population
+barplot1 <- stacked_barplots(seurat_object = seurat_data,
+                             meta_col = "SCT_celltype_pc",
+                             percent = TRUE,
+                             split_by = NULL)
+
+
+print(barplot1)
+```
+
+We can also plot these cell types on top of the tissue sample. We can now tell what cell types are spatially together and which tend to be more dispersed in the sample.
+
+```{r, fig.width = 8, fig.height = 6}
+plot_cell_type <- SpatialDimPlot(seurat_data, group.by = "SCT_celltype_pc")
+ 
+plot_cluster <- SpatialDimPlot(seurat_data, group.by = clusters,
+                               cols = cluster_colors)
+
+plot_cell_type + plot_cluster
+```
+
+
+## Map clusters ovarian combined reference {.tabset}
+
+A) Cell types predicted by using `clustifyr` with the above reference to map
+B) Clusters projected onto the UMAP
+C) Percent of cells in each cell type predicted using `clustifyr`
+```{r, fig.width=8, fig.height=3}
+Idents(seurat_data) <- clusters
+
+colors_celltype <- lacroix_palette("PeachPear", 6, "discrete")
+
+names(colors_celltype) <- c("Monocyte", "MSC", "Fibroblast",
+                            "Epithelial", "ESC", "TCell")
+
+plot1 <- plotDimRed(seurat_data,
+                    col_by = "SCT_celltype_combined",
+                    plot_type = "rnasct.umap")[[1]]
+
+plot3 <- plotDimRed(seurat_data,
+                    col_by = clusters,
+                    plot_type = "rnasct.umap",
+                    color = cluster_colors)[[1]]
+
+plot_grid(plot1, plot3,
+  labels = c("A", "B"),
+  nrow = 1, ncol = 2,
+  align = "h",
+  axis = "tb"
+)
+```
+
+```{r, fig.width=4, fig.height=4}
+# Bar plots of population
+barplot1 <- stacked_barplots(seurat_object = seurat_data,
+                             meta_col = "SCT_celltype_combined",
+                             percent = TRUE,
+                             split_by = NULL)
+
+
+print(barplot1)
+```
+
+We can also plot these cell types on top of the tissue sample. We can now tell what cell types are spatially together and which tend to be more dispersed in the sample.
+
+```{r, fig.width = 8, fig.height = 6}
+plot_cell_type <- SpatialDimPlot(seurat_data, group.by = "SCT_celltype_combined")
+ 
+plot_cluster <- SpatialDimPlot(seurat_data, group.by = clusters,
+                               cols = cluster_colors)
+
+plot_cell_type + plot_cluster
+```
+
+
+# Gene lists from Ben
+
+## Gene expression single cell ref {.tabset}
+
+```{r bitler-genes-{{.x}}, results = "hide"}
+# Create directory if it does not already exist
+ifelse(!dir.exists(file.path(save_dir, "images", "gene_plots")),
+       dir.create(file.path(save_dir, "images", "gene_plots")), FALSE)
+
+# Set variables
+plot_type <- "rnasct.umap"
+sep_1 <- violin_col_by_1 <- "SCT_cluster"
+colors_1 <- umap_cols_1 <- cluster_colors
+sep_2 <- violin_col_by_2 <- celltype
+colors_2 <- umap_cols_2 <- colors_celltype
+
+# Add extra # to make sure the heading level is correct
+extra_pound_gene <- ""
+
+# Get genes from other single cell paper
+bitler_genes <- unique(bitler_genes[bitler_genes %in% rownames(seurat_data)])
+
+gene_template <- "src/scripts/gene_plot_template.Rmd"
+
+# Plot using gene plotting rmd template
+gene_chunks <- bitler_genes %>%
+  map(~knit_expand(file = gene_template, gene = .x, group = "bitler",
+                   sample = sample))
+```
+
+`r knit_child(text = gene_chunks)`
+

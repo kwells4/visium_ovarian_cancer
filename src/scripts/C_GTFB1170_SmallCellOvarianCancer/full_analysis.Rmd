@@ -1,0 +1,555 @@
+---
+title: "C_GTFB1170_SmallCellOvarianCancer SC Analysis"
+author: "Kristen Wells"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    highlight: "tango"
+    df_print: "paged"
+    code_folding: "hide"
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = F, 
+  warning = F,
+  comment = "",
+  results = "hide"
+)
+
+knitr::opts_knit$set(root.dir =
+  "/Users/wellskr/Documents/Analysis/Benjamin_Bitler/visium_ovary")
+
+library(Seurat)
+library(cowplot)
+library(knitr)
+library(tidyverse)
+library(LaCroixColoR)
+library(viridis)
+library(pheatmap)
+library(RColorBrewer)
+```
+
+```{r "Set variables and theme"}
+# Set theme
+ggplot2::theme_set(ggplot2::theme_classic(base_size = 10))
+
+source("src/scripts/functions.R")
+
+normalization_method <- "SCT" # can be SCT or log
+sample <- "C_GTFB1170_SmallCellOvarianCancer"
+
+species <- "hsa"
+
+
+path_id_list <- c(T_cell_receptor = "04660",
+                  pathways_in_cancer = "05200",
+                  leukocyte_transendothelial_migration = "04670",
+                  transcriptional_misregulation_in_cancer = "05202",
+                  p53_signaling_pathway = "04115",
+                  proteoglycans_in_cancer = "05205")
+
+HTO <- FALSE
+ADT <- FALSE
+ffpe <- TRUE
+
+if(normalization_method == "SCT"){
+  SCT <- TRUE
+  seurat_assay <- "SCT"
+  clusters = "SCT_cluster"
+} else {
+  SCT <- FALSE
+  seurat_assay <- "RNA"
+  clusters = "RNA_cluster"
+}
+
+base_dir_proj <- file.path("results", sample)
+
+save_dir <- file.path(base_dir_proj, "R_analysis")
+```
+
+# Preprocessing RNA
+
+```{r,results="hide"}
+# To create this file, run src/scripts/01_Initial_processing.R
+seurat_data <- readRDS(file = file.path(save_dir, "rda_obj",
+                                        "seurat_start.rds"))
+```
+
+## Count violin plots
+First we look at the violin plots for the counts of features and reads. These look pretty good to me. We do seem more features (genes) per spot than I generally see genes per cell in single cell RNA-seq which is likely because often the spots are 1-10 cells. 
+
+```{r, fig.width=8, fig.height=4}
+# Plot to determine appropriate cutoffs
+rna_qual <- VlnPlot(seurat_data,
+                    features = c("nFeature_Spatial", "nCount_Spatial"),
+                    ncol = 2)
+
+if(ADT){
+  adt_qual <- VlnPlot(seurat_data, features = c("nCount_ADT", "nFeature_ADT"))
+  plot_grid(rna_qual, adt_qual,
+          nrow = 2, ncol = 1,
+          align = "hv",
+          axis = "tb")
+} else {
+  plot(rna_qual)
+}
+```
+
+## PCA {.tabset}
+This is a PCA performed on your data. Unlike in the wafergen data it doesn't
+seem like the PCs are strongly correlated with the number of genes. We don't
+see a strong correlation with cell cycle state so we don't need to correct
+for that.
+We can look through the genes that are most strongly associated with each PC to
+start to get a sense of what is driving the different PCs.
+
+A) the top genes associated with PC1 and PC2
+B) PCA colored by processing group
+C) PCA colored by the number of features
+D) PCA colored by the number of UMIs
+E) PCA colored by cell cycle phase
+```{r "PCA of gene expression"}
+# To make this object, run 02_PCA_UMAP.R
+seurat_data <- readRDS(file.path(save_dir, "rda_obj", "seurat_processed.rds"))
+
+RNA_plots <- plot_PCA(HTO = HTO, assay = seurat_assay,
+                      sample_object = seurat_data,
+                      data_type = "spatial", ffpe = ffpe)
+
+seurat_data <- CellCycleScoring(seurat_data, s.features = cc.genes$s.genes,
+                                g2m.features = cc.genes$g2m.genes,
+                                set.ident = FALSE)
+
+cycling_plot <- plotDimRed(sample_object = seurat_data, col_by = "Phase",
+                           plot_type = "sctpca")
+
+```
+
+```{r "PCA plots for gene expression", fig.width=8, fig.height=6}
+plot_grid(RNA_plots$pca_loadings, labels = "A")
+plot_grid(plotlist = c(RNA_plots[2:4], cycling_plot),
+          nrow = 2, ncol = 2,
+          labels = c("B", "C", "D", "E"),
+          align = "vh",
+          axis = "tb")
+if(HTO){
+  plot_grid(RNA_plots$hto_pca_plot[[1]], labels = "G")
+}
+```
+We can use the elbow and jackstraw plots below to determine the ideal number of PCs to use
+for the next steps. Here all of the PCs are really strong, so we can use them all.
+```{r "Elbow and jackstraw for gene expression", fig.width=8, fig.height=4}
+if(SCT){
+  plot_grid(RNA_plots$elbow,
+            labels = c("A"))
+} else {
+  plot_grid(RNA_plots$jackstraw, RNA_plots$elbow,
+            labels = c("A", "B"),
+            align = "h",
+            axis = "tb")
+}
+
+
+```
+
+## UMAP plots {.tabset}
+Next I performed a UMAP dimensional reduction (below). We do see a handful of clusters come out. There is also one main cycling cluster, but cycling cells are distributed throughout. We can discuss the best way to deal with them. Often, I'm nervous about try to remove cell cycle effect because it tends to remove real biology.
+
+A) UMAP colored by clusters based on gene expression
+B) UMAP colored by the number of features
+C) UMAP colored by the number of UMIs
+D) UMAP colored by cell cycle state
+```{r "Gene expression UMAP", results = "hide", fig.height=6, fig.width=8}
+seurat_data[[clusters]][[1]] <- factor(seurat_data[[clusters]][[1]])
+
+nColors <- length(levels(seurat_data[[clusters]][[1]]))
+
+cluster_colors <- grDevices::colorRampPalette(
+  RColorBrewer::brewer.pal(9, "Set1"))(nColors)
+
+names(cluster_colors) <- levels(seurat_data[[clusters]][[1]])
+
+cell_cycle_colors <- LaCroixColoR::lacroix_palette("MelonPomelo")[c(2,4,6)]
+
+cluster_plot <- plotDimRed(seurat_data, col_by = clusters,
+                       plot_type = "rnasct.umap",
+                       color = cluster_colors)[[1]]
+
+qual_plots <- plotDimRed(seurat_data,
+                           col_by = c("nFeature_Spatial", "nCount_Spatial"),
+                           plot_type = "rnasct.umap")
+cycling_plot <- plotDimRed(seurat_data,
+                           col_by = "Phase", plot_type = "rnasct.umap",
+                           color = cell_cycle_colors)[[1]]
+
+if(HTO){
+  htos <- plotDimRed(seurat_data, col_by = "HTO_classification",
+                     plot_type = "rnasct.umap")[[1]]
+
+  plot_grid(cluster_plot, htos, qual_plots[[1]], qual_plots[[2]],
+            labels = c("A", "B", "C", "D"),
+            nrow = 2, ncol = 2,
+            align = "h",
+            axis = "tb")
+} else {
+  plot_grid(cluster_plot, qual_plots[[1]], qual_plots[[2]], cycling_plot,
+            labels = c("A", "B", "C", "D"),
+            nrow = 2, ncol = 2,
+            align = "h",
+            axis = "tb")
+}
+```
+
+We can also plot these metrics on top of the slide image. I find it somewhat interesting that some clusters on the UMAP are also spatially together, while some clusters are distributed throughout. The cycling cells also seem to have a bit of a spatially restricted pattern.
+```{r}
+
+plots_features <- SpatialFeaturePlot(seurat_data,
+                                     features = c("nFeature_Spatial",
+                                                  "nCount_Spatial"),
+                                     combine = FALSE)
+
+plot_cell_cycle <- SpatialDimPlot(seurat_data, group.by = "Phase",
+                                   cols = cell_cycle_colors)
+ 
+plot_cluster <- SpatialDimPlot(seurat_data, group.by = clusters,
+                               cols = cluster_colors)
+
+#plot_grid(plot_cluster, plots_features[[1]],
+#          plots_features[[2]], plot_cell_cycle,
+#          labels = c("A", "B", "C", "D"),
+#          nrow = 2, ncol = 2,
+#          align = "h",
+#          axis = "tb")
+
+plot_cluster + plots_features[[1]]
+plots_features[[2]] + plot_cell_cycle
+```
+
+## Map clusters {.tabset}
+I mapped clusters based on an existing single cell dataset. I found this recently published paper "Characterizing the tumor microenvironment of metastatic ovarian cancer by single-cell transcriptomics" (https://www.sciencedirect.com/science/article/pii/S2211124721005076). They seemed to thorougly characterize their cell populations using a mixture of mapping to bulk RNA-seq datasets and curration based on the genes that marked each population. I then correlated the gene expression in each of the identified clusters in your dataset with the cell types annotated in this dataset using `clustifyr`. I generally like to start naming clusters based on existing datasets, but we can tweak the clusters and the cell types as you look through the gene lists.
+
+
+A) Cell types predicted by using `clustifyr` with the above reference to map
+B) Clusters projected onto the UMAP
+C) Percent of cells in each cell type predicted using `clustifyr`
+```{r "mapping based on gene expression clusters", fig.width=8, fig.height=3}
+Idents(seurat_data) <- clusters
+
+colors_celltype <- lacroix_palette("PeachPear", 6, "discrete")
+
+colors_celltype <- c(colors_celltype, "#93B7CC")
+
+names(colors_celltype) <- c("Monocyte", "MSC", "Fibroblast",
+                            "Epithelial", "ESC", "TCell",
+                            "BCell")
+
+plot1 <- plotDimRed(seurat_data,
+                    col_by = "SCT_celltype",
+                    plot_type = "rnasct.umap",
+                    color = colors_celltype)[[1]]
+
+plot3 <- plotDimRed(seurat_data,
+                    col_by = clusters,
+                    plot_type = "rnasct.umap",
+                    color = cluster_colors)[[1]]
+
+plot_grid(plot1, plot3,
+  labels = c("A", "B"),
+  nrow = 1, ncol = 2,
+  align = "h",
+  axis = "tb"
+)
+```
+
+```{r, fig.width=4, fig.height=4}
+# Bar plots of population
+barplot1 <- stacked_barplots(seurat_object = seurat_data,
+                             meta_col = "SCT_celltype",
+                             color = colors_celltype,
+                             percent = TRUE,
+                             split_by = NULL)
+
+
+print(barplot1)
+```
+
+We can also plot these cell types on top of the tissue sample. We can now tell what cell types are spatially together and which tend to be more dispersed in the sample.
+
+```{r, fig.width = 8, fig.height = 6}
+plot_cell_type <- SpatialDimPlot(seurat_data, group.by = "SCT_celltype",
+                                   cols = colors_celltype)
+ 
+plot_cluster <- SpatialDimPlot(seurat_data, group.by = clusters,
+                               cols = cluster_colors)
+
+plot_cell_type + plot_cluster
+```
+
+
+# Marker Gene analsis
+
+## Marker genes {.tabset}
+Next we can look at the top DE genes for the different clusters and cell types
+
+### Cell types
+
+1. Left, expression of DE genes in broad cell categories.
+2. Right, expression of DE genes in broad cell categories averaged within each cell type
+```{r "make combined cell type heatmaps", fig.height=8, fig.width=12}
+# To make these files, run 06_find_markers.R
+Idents(seurat_data) <- "SCT_celltype"
+
+seurat_data$SCT_celltype <- factor(seurat_data$SCT_celltype,
+                                   levels = c("ESC", "MSC",
+                                              "Fibroblast", "Monocyte",
+                                              "BCell"))
+
+marker_genes_rna <- read.csv(file.path(save_dir,
+                                    "files", "DE",
+                                    "Spatial_markers_SCT_celltype.csv"),
+                             row.names = 1)
+
+DefaultAssay(seurat_data) <- seurat_assay
+top10_rna <- marker_genes_rna %>% 
+  group_by(cluster) %>% 
+  top_n(n = 10, wt = avg_log2FC)
+
+rna_heatmap <- plot_heatmap(seurat_data, top10_rna$gene, "SCT_celltype",
+                            colors = colors_celltype)[[4]]
+
+rna_heatmap_ave <- plot_heatmap(seurat_data, top10_rna$gene, "SCT_celltype",
+                            colors = colors_celltype,
+                            average_expression = TRUE,
+                            spatial = TRUE)[[4]]
+
+
+plot_grid(rna_heatmap, rna_heatmap_ave,
+          nrow = 1, ncol = 2,
+          align = "hv",
+          axis = "tb")
+```
+
+#### Gene expression {.tabset}
+
+```{r marker-genes-celltype-{{.x}}, results = "hide"}
+# Create directory if it does not already exist
+ifelse(!dir.exists(file.path(save_dir, "images", "gene_plots")),
+       dir.create(file.path(save_dir, "images", "gene_plots")), FALSE)
+
+# Set variables
+plot_type <- "rnasct.umap"
+sep_1 <- violin_col_by_1 <- "SCT_cluster"
+colors_1 <- umap_cols_1 <- cluster_colors
+sep_2 <- violin_col_by_2 <- "SCT_celltype"
+colors_2 <- umap_cols_2 <- colors_celltype
+
+# Add extra # to make sure the heading level is correct
+extra_pound_gene <- "##"
+
+# Get genes from other single cell paper
+gene_list <- top10_rna$gene
+
+gene_list <- unique(gene_list[gene_list %in% rownames(seurat_data)])
+
+gene_template <- "src/scripts/gene_plot_template.Rmd"
+
+# Plot using gene plotting rmd template
+gene_chunks <- gene_list %>%
+  map(~knit_expand(file = gene_template, gene = .x, group = "cell_type",
+                   sample = sample))
+```
+
+`r knit_child(text = gene_chunks)`
+
+### Clusters
+3. Left, expression of DE genes across clusters.
+4. Right, expression of DE genes across clusters averaged within each cluster.
+```{r, fig.height=10, fig.width=12}
+Idents(seurat_data) <- clusters
+
+marker_genes_rna_clust <- read.csv(file.path(save_dir,
+                                    "files", "DE",
+                                    "Spatial_markers_SCT_cluster.csv"),
+                             row.names = 1)
+
+top10_rna_clust <- marker_genes_rna_clust %>% 
+  group_by(cluster) %>% 
+  top_n(n = 10, wt = avg_log2FC)
+
+# Make a meta_df
+sample_info <- FetchData(seurat_data, vars = c("SCT_celltype",
+                                               clusters))
+
+sample_info[[clusters]] <- as.character(sample_info[[clusters]])
+
+sample_info[[clusters]] <- factor(sample_info[[clusters]],
+                                      levels= unique(top10_rna_clust$cluster))
+
+# make a list for the column labeing
+coloring <- list(cluster_colors, colors_celltype)
+names(coloring) <- c(clusters, "SCT_celltype")
+
+rna_heatmap_clust <- plot_heatmap(seurat_data, top10_rna_clust$gene,
+                                  clusters, meta_df = sample_info,
+                                  color_list = coloring,
+                                  max_val = 2.5)[[4]]
+
+meta_ave <- table(paste0(sample_info$SCT_celltype, "_",
+                         sample_info[[clusters]]))
+
+meta_ave <- data.frame(meta_ave)
+meta_ave$SCT_celltype <- sub("_[0-9]+$", "", meta_ave$Var1)
+meta_ave[[clusters]] <- sub(".*_(?=([0-9]+)$)", "", meta_ave$Var1, perl = TRUE)
+meta_ave$Var1 <- NULL
+meta_ave$Freq <- NULL
+rownames(meta_ave) <- paste0("X", meta_ave[[clusters]])
+levels(meta_ave[[clusters]]) <- unique(top10_rna_clust$cluster)
+
+rna_heatmap_ave_clust <- plot_heatmap(seurat_data, top10_rna_clust$gene,
+                                  clusters, meta_df = meta_ave,
+                                  color_list = coloring,
+                                  max_val = 2.5,
+                                  average_expression = TRUE,
+                                  spatial = TRUE)[[4]]
+
+plot_grid(rna_heatmap_clust, rna_heatmap_ave_clust,
+          nrow = 1, ncol = 2,
+          align = "hv",
+          axis = "tb")
+```
+
+#### Gene expression {.tabset}
+
+```{r marker-genes-cluster-{{.x}}, results = "hide"}
+# Set variables
+plot_type <- "rnasct.umap"
+sep_1 <- violin_col_by_1 <- "SCT_cluster"
+colors_1 <- umap_cols_1 <- cluster_colors
+sep_2 <- violin_col_by_2 <- "SCT_celltype"
+colors_2 <- umap_cols_2 <- colors_celltype
+
+# Add extra # to make sure the heading level is correct
+extra_pound_gene <- "##"
+
+# Get genes from other single cell paper
+gene_list <- top10_rna_clust$gene
+
+gene_list <- unique(gene_list[gene_list %in% rownames(seurat_data)])
+
+gene_template <- "src/scripts/gene_plot_template.Rmd"
+
+# Plot using gene plotting rmd template
+gene_chunks <- gene_list %>%
+  map(~knit_expand(file = gene_template, gene = .x, group = "cluster",
+                   sample = sample))
+```
+
+`r knit_child(text = gene_chunks)`
+
+## Pathway analysis {.tabset}
+Pathway analysis images of genes differentially expressed.
+
+```{r}
+pathway_output <- file.path(save_dir, "images", "pathways")
+gse_output <- file.path(save_dir, "files", "GSEA")
+
+celltypes <- unique(seurat_data$SCT_celltype)
+
+cluster_list <- unique(seurat_data[[clusters]][[1]])
+
+pathview_template <- "src/scripts/pathview_printing_template.Rmd"
+
+```
+
+### Cell type {.tabset}
+This is a view of genes that are markers of each cell type overlayed on a pathway map.
+
+```{r pathway-analysis, results = "asis"}
+# Plot using the plot template
+pathview_chunks <- celltypes %>%
+  map(~knit_expand(file = pathview_template, group = .x,
+                   path_directory = "celltype",
+                   path_id_list = path_id_list))
+```
+
+`r knit_child(text = pathview_chunks)`
+
+### Cluster {.tabset}
+This is a view of genes that are markers of each cluster overlayed on a pathway map.
+
+```{r pathway-analysis-cluster, results = "asis"}
+# Plot using the plot template
+pathview_chunks <- cluster_list %>%
+  map(~knit_expand(file = pathview_template, group = .x,
+                   path_directory = "cluster",
+                   path_id_list = path_id_list))
+```
+
+`r knit_child(text = pathview_chunks)`
+
+## Gene set enrichment analysis {.tabset}
+I ran gene set enrichement using `gost`. This tool performs gene set enrichment
+using a variety of sources including GO terms, KEGG, Reactome, WikiPathways,
+TRANSFAC, miRTArBase, Human Protein Atlas, CORUM and Humen pehnotype ontology.
+I use GO biological process, KEGG, Reactome, and TFs from TRANSFAC, but we can
+use others if you would like.
+
+After running these analyses, I am plotting the top 20 terms from each test (that
+are significant). In these plots, the size of the dot is the number of genes
+that overlap between the DE genes for the cluter and the number of genes in 
+the term. The color is the -log10 P value, with red being more significant.
+The x axis is the number of number of intersecting genes divided by the number of
+DE genes. If you look at the `gost` output this is the `precision` term.
+
+### Cell type {.tabset}
+```{r "celltype gost"}
+type <- "celltype"
+# Path to output
+gost_path <- file.path(save_dir, "files", "GSEA", type, "all_GSE_results.csv")
+
+
+
+# Read in gost output
+gost_text <- read.csv(gost_path)
+gost_output <- list(result = gost_text)
+
+all_plots <- make_go_plots(gost_output = gost_output)
+
+gene_template <- "src/scripts/gost_plot_template.Rmd"
+
+gost_chunks <- names(all_plots) %>%
+  map(~knit_expand(file = gene_template, cluster = .x, type = type,
+                   sample = sample))
+
+```
+
+`r knit_child(text = gost_chunks)`
+
+### Cluster {.tabset}
+```{r "cluster gost"}
+type <- "cluster"
+# Path to output
+gost_path <- file.path(save_dir, "files", "GSEA", type, "all_GSE_results.csv")
+
+
+
+# Read in gost output
+gost_text <- read.csv(gost_path)
+gost_output <- list(result = gost_text)
+
+all_plots <- make_go_plots(gost_output = gost_output)
+
+gene_template <- "src/scripts/gost_plot_template.Rmd"
+
+gost_chunks <- names(all_plots) %>%
+  map(~knit_expand(file = gene_template, cluster = .x, type = type,
+                   sample = sample))
+
+```
+
+`r knit_child(text = gost_chunks)`

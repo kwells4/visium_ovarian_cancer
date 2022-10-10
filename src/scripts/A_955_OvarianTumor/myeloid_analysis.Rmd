@@ -1,0 +1,149 @@
+---
+title: "Myeloid analysis"
+author: "Kristen Wells"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    highlight: "tango"
+    df_print: "paged"
+    code_folding: "hide"
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = F, 
+  warning = F,
+  comment = "",
+  results = "hide"
+)
+
+knitr::opts_knit$set(root.dir =
+  "/Users/wellskr/Documents/Analysis/Benjamin_Bitler/visium_ovary")
+
+library(Seurat)
+library(cowplot)
+library(knitr)
+library(tidyverse)
+library(viridis)
+library(RColorBrewer)
+library(here)
+
+source(here("src/scripts/functions.R"))
+```
+
+```{r load-data-theme}
+ggplot2::theme_set(ggplot2::theme_classic(base_size = 10))
+
+sample <- "A_955_OvarianTumor"
+
+base_dir_proj <- here(file.path("results", sample))
+
+no_multi_dir <- file.path(base_dir_proj, "R_analysis_no_multi")
+
+myeloid_seurat <- readRDS(file = file.path(no_multi_dir, "rda_obj",
+                                      "seurat_no_mult_myeloid.rds"))
+```
+
+# Background
+I started looking into the M1/M2 axis for the myeloid cells. There were only 100 cells that were identified as myeloid cells in this dataset making the clustering difficult. I did use gene sets from two papers that use the M1 and M2 axis to define their myeloid populations. While I did see a nice gradient when looking within each gene set, the two gene sets did not agree. I think it would be worth exploring these gene sets to determine which make the most sense
+
+## Reanalysis of the myeloid cells
+I was able to subset to just the myeloid cells and repeat analysis. There were not enough cells for confident clustering.
+
+
+```{r, fig.width = 4, fig.height = 8}
+plot_1 <- plotDimRed(myeloid_seurat, col_by = "SCT_cluster",
+                     plot_type = "rnasct.umap",
+                     size = 1)[[1]]
+
+
+plot_2 <- SpatialDimPlot(myeloid_seurat, label = TRUE, label.size = 3,
+                         cols = "Set1")
+
+cowplot::plot_grid(plot_1, plot_2, nrow = 2, ncol = 1,
+                   labels = c("A", "B"), axis = "hv", aligh = "lr")
+
+```
+
+## M1/M2 analysis {.tabset}
+I next tried to analyze M1 and M2 gene signatures in each cell using `AUCell`. I downloaded two gene sets. The first was from a paper titled [Single cell RNA sequencing identifies unique inflammatory airspace macrophage subsets](https://insight.jci.org/articles/view/126556/figure/3). The second is from a paper titled [From M1 Macrophage and M1/M2 ratio defined by transcriptomic signatures resemble only part of their conventional clinical characteristics in breast cancer](https://doi.org/10.1038/s41598-020-73624-w) and was taken from supplemental table 1 and 2.
+
+```{r}
+add_metadata <- read.csv(file = file.path(no_multi_dir, "files",
+                                         "myeloid_AUCell.csv"))
+
+```
+
+### Breast cancer
+Looking at only the breast cancer genes, I've taken the `AUCell` score (which is similar to the average expression of all genes in the list within each cell) for each the M1 and M2 list as the axis and colored each cell by the difference between the M1 and M2 score.
+
+```{r, fig.height = 4, fig.width = 6}
+ggplot(add_metadata, aes(x = AUCell_Human_M1_breast_cancer,
+                         y = AUCell_Human_M2_breast_cancer,
+                         color = AUCell_M1_M2_breast_cancer)) +
+  geom_point() +
+  scale_color_viridis(option = "magma")
+```
+
+### Lung
+Looking at only the lung genes, I've taken the `AUCell` score (which is similar to the average expression of all genes in the list within each cell) for each the M1 and M2 list as the axis and colored each cell by the difference between the M1 and M2 score.
+
+```{r, fig.height = 4, fig.width = 5}
+ggplot(add_metadata, aes(x = AUCell_M1_lung, y = AUCell_M2_lung,
+                         color = AUCell_M1_M2_lung)) +
+  geom_point() +
+  scale_color_viridis(option = "magma")
+```
+
+### M1 breast cancer vs lung
+Here, I looked for correlation between the M1 scores for each list. I wanted to see good correlation between them. Unfortunately, they don't seem to correlate.
+
+```{r, fig.height = 4, fig.width = 4}
+ggplot(add_metadata, aes(x = AUCell_M1_lung,
+                         y = AUCell_Human_M1_breast_cancer)) +
+  geom_point()
+```
+
+### M2 breast cancer vs lung
+Here, I looked for correlation between the M2 scores for each list. I wanted to see good correlation between them. Unfortunately, they don't seem to correlate.
+
+```{r, fig.height = 4, fig.width = 4}
+ggplot(add_metadata, aes(x = AUCell_M2_lung,
+                         y = AUCell_Human_M2_breast_cancer)) +
+  geom_point()
+```
+
+### Difference in score breast cancer vs lung
+Here, I looked for correlation between the M2 scores for each list. I wanted to see good correlation between them. Unfortunately, they don't seem to correlate.
+
+```{r, fig.height = 4, fig.width = 4}
+ggplot(add_metadata, aes(x = AUCell_M1_M2_lung,
+                         y = AUCell_M1_M2_breast_cancer)) +
+  geom_point()
+```
+
+### Breast cancer vs Lung
+Another way to visualize this is to compare the M1/M2 scores from one dataset with the difference from these scores in another. I took the `AUCell` score for the M1 and M2 list from the breast cancer lists for the x and y axis and colored the cells by the difference between the M1 and M2 scores from the lung lists. I was hoping to see some correlation between the scores from both datasets, but there isn't great correlation
+
+```{r, fig.height = 4, fig.width = 5}
+ggplot(add_metadata, aes(x = AUCell_Human_M1_breast_cancer,
+                         y = AUCell_Human_M2_breast_cancer,
+                         color = AUCell_M1_M2_lung)) +
+  geom_point() +
+  scale_color_viridis(option = "magma")
+```
+
+### Lung vs Breast cancer
+Another way to visualize this is to compare the M1/M2 scores from one dataset with the difference from these scores in another. I took the `AUCell` score for the M1 and M2 list from the lung lists for the x and y axis and colored the cells by the difference between the M1 and M2 scores from the breast cancer lists. I was hoping to see some correlation between the scores from both datasets, but there isn't great correlation
+
+```{r, fig.height = 4, fig.width = 6}
+ggplot(add_metadata, aes(x = AUCell_M1_lung,
+                         y = AUCell_M2_lung,
+                         color = AUCell_M1_M2_breast_cancer)) +
+  geom_point() +
+  scale_color_viridis(option = "magma")
+```

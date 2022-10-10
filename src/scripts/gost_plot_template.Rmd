@@ -1,0 +1,33 @@
+```{r echo = F}
+
+# Strings to match samples and create labels
+cluster <- "{{.x}}"
+
+# Create section title
+sect_title <- cluster
+
+if(!exists("extra_pound_gost")){
+  extra_pound_gost <- ""
+}
+
+```
+
+####`r extra_pound_gost` **`r sect_title`**
+Plots of gene set enrichment.
+
+A) Plot of the top GO Biological Process terms
+B) Plot of top KEGG terms
+C) Plot of top Reactome terms
+D) Plot of top Transcription factors from TRANSFAC
+```{r gost-plot-{{cluster}}-{{type}}-{{sample}}, fig.width=10, fig.height=25, message=F, echo=F, results = "hide"}
+
+plot_grid(all_plots[[cluster]][["GO:BP"]],
+          all_plots[[cluster]][["KEGG"]],
+          all_plots[[cluster]][["REAC"]],
+          all_plots[[cluster]][["TF"]],
+          labels = c("A", "B", "C", "D"),
+          nrow = 4,
+          ncol = 1,
+          align = "hv",
+          axis = "l")
+```

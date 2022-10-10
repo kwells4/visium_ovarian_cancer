@@ -1,0 +1,42 @@
+```{r echo = F}
+
+# Strings to match samples and create labels
+#gene <- "{{.x}}"
+group <- "{{.x}}"
+path_directory <- "{{path_directory}}"
+
+# Create section title
+sect_title <- group
+
+if(!exists("extra_pound_path")){
+  extra_pound_path <- ""
+}
+
+
+```
+
+####`r extra_pound_path` **`r sect_title`**
+
+```{r pathway-analysis-{{path_directory}}-{{group}}-{{sample}}, results="asis"}
+figures <- lapply(names(path_id_list), function(x){
+  GSE_file <- read.csv(file.path(getwd(), gse_output, path_directory,
+                       "all_GSE_results.csv"))
+  GSE_file <- GSE_file %>%
+    dplyr::filter(source == "KEGG" & query == group)
+  
+  KEGG_id <- paste0("KEGG:", path_id_list[x])
+  
+  if(KEGG_id %in% GSE_file$term_id){
+    pval <- GSE_file[GSE_file$term_id == KEGG_id, ]$p_value
+    pval <- formatC(pval, format = "e", digits = 2)
+    print_info <- paste0("significant: p-val = ", pval)
+    full_path <- file.path(getwd(), pathway_output, path_directory,
+                       paste0(species, "_", x, ".pathview.", group, ".png"))
+    if(file.exists(full_path)){
+      cat(paste0("![", x, "_", group, " ", print_info, "](",
+                 full_path, ")"), "\n\n")
+    }
+  }
+})
+
+```
